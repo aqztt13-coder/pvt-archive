@@ -1,0 +1,385 @@
+import React, { useState, useEffect } from 'react';
+import {
+  Users,
+  UserPlus,
+  Shield,
+  Key,
+  CheckCircle2,
+  AlertTriangle,
+  UserCheck,
+  UserX,
+  X,
+  Lock,
+} from 'lucide-react';
+import { db, logAuditEvent } from '../../db/pvtDb';
+import { hashPassword, canAdminister } from '../../services/authService';
+import {
+  notifySuccess,
+  notifyError,
+  notifyWarning,
+  requestConfirm,
+} from '../../services/notificationService';
+import { translations } from '../../i18n/translations';
+import type { Language, LocalUser, UserRole } from '../../types';
+
+interface Props {
+  lang: Language;
+  currentUser: LocalUser | null;
+}
+
+export const UserManagementView: React.FC<Props> = ({ lang, currentUser }) => {
+  const t = translations[lang];
+  const [users, setUsers] = useState<LocalUser[]>([]);
+  const [showAddModal, setShowAddModal] = useState(false);
+
+  // Form states
+  const [username, setUsername] = useState('');
+  const [fullName, setFullName] = useState('');
+  const [role, setRole] = useState<UserRole>('Engineer');
+  const [department, setDepartment] = useState('Reservoir Fluids Division');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [errorMsg, setErrorMsg] = useState('');
+
+  useEffect(() => {
+    loadUsers();
+  }, []);
+
+  const loadUsers = async () => {
+    const list = await db.localUsers.toArray();
+    setUsers(list);
+  };
+
+  const handleCreateUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMsg('');
+
+    if (!canAdminister(currentUser)) {
+      setErrorMsg(lang === 'ar' ? 'فقط مدير النظام يملك صلاحية إضافة مستخدمين.' : 'Only administrators can create users.');
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      setErrorMsg(lang === 'ar' ? 'كلمات المرور غير متطابقة.' : 'Passwords do not match.');
+      return;
+    }
+
+    const existing = await db.localUsers.where('username').equalsIgnoreCase(username.trim()).first();
+    if (existing) {
+      setErrorMsg(lang === 'ar' ? 'اسم المستخدم مسجل مسبقاً.' : 'Username already exists.');
+      return;
+    }
+
+    const passwordHash = await hashPassword(password);
+    const id = `USR-${Date.now()}`;
+    const newUser: LocalUser = {
+      id,
+      username: username.trim().toLowerCase(),
+      fullName: fullName.trim(),
+      role,
+      department: department.trim(),
+      passwordHash,
+      isActive: true,
+      createdAt: new Date().toISOString(),
+    };
+
+    await db.localUsers.add(newUser);
+
+    await logAuditEvent({
+      userId: currentUser?.id || 'USR-ADMIN',
+      userName: currentUser?.fullName || 'Administrator',
+      actionType: 'USER_MANAGEMENT',
+      entityType: 'LocalUser',
+      entityId: id,
+      details: `Created new local user account: ${newUser.username} (${newUser.role})`,
+    });
+
+    await loadUsers();
+    setShowAddModal(false);
+    setUsername('');
+    setFullName('');
+    setPassword('');
+    setConfirmPassword('');
+    notifySuccess(
+      lang === 'ar'
+        ? `تم إنشاء حساب المستخدم "${newUser.username}" بنجاح.`
+        : `User account "${newUser.username}" created successfully.`
+    );
+  };
+
+  const toggleUserActive = (user: LocalUser) => {
+    if (!canAdminister(currentUser)) {
+      notifyError(
+        lang === 'ar' ? 'فقط مدير النظام يملك صلاحية إدارة المستخدمين.' : 'Only administrators can manage users.'
+      );
+      return;
+    }
+
+    if (user.id === currentUser?.id) {
+      notifyWarning(
+        lang === 'ar' ? 'لا يمكنك تعطيل حسابك النشط حالياً.' : 'You cannot disable your active account.'
+      );
+      return;
+    }
+
+    const updatedStatus = !user.isActive;
+    requestConfirm({
+      title: lang === 'ar' ? (updatedStatus ? 'تفعيل الحساب' : 'تعطيل الحساب') : (updatedStatus ? 'Activate Account' : 'Disable Account'),
+      message:
+        lang === 'ar'
+          ? `هل أنت متأكد من ${updatedStatus ? 'تفعيل' : 'تعطيل'} حساب المستخدم: "${user.fullName}" (${user.username})؟`
+          : `Are you sure you want to ${updatedStatus ? 'activate' : 'disable'} account: "${user.fullName}" (${user.username})?`,
+      confirmText: lang === 'ar' ? (updatedStatus ? 'تفعيل' : 'تعطيل') : (updatedStatus ? 'Activate' : 'Disable'),
+      cancelText: lang === 'ar' ? 'إلغاء' : 'Cancel',
+      isDestructive: !updatedStatus,
+      onConfirm: async () => {
+        await db.localUsers.update(user.id, { isActive: updatedStatus });
+
+        await logAuditEvent({
+          userId: currentUser?.id || 'USR',
+          userName: currentUser?.fullName || 'Administrator',
+          actionType: 'USER_MANAGEMENT',
+          entityType: 'LocalUser',
+          entityId: user.id,
+          details: `Account ${user.username} set to ${updatedStatus ? 'Active' : 'Disabled'}.`,
+        });
+
+        await loadUsers();
+        notifySuccess(
+          lang === 'ar'
+            ? `تم ${updatedStatus ? 'تفعيل' : 'تعطيل'} الحساب بنجاح.`
+            : `Account ${updatedStatus ? 'activated' : 'disabled'} successfully.`
+        );
+      },
+    });
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+        <div>
+          <h2 className="text-xl font-bold text-slate-900 tracking-tight">{t.users.title}</h2>
+          <p className="text-xs text-slate-500">{t.users.subtitle}</p>
+        </div>
+
+        {canAdminister(currentUser) && (
+          <button
+            onClick={() => {
+              setErrorMsg('');
+              setShowAddModal(true);
+            }}
+            className="flex items-center gap-1.5 rounded-xl bg-sky-600 px-3.5 py-2 text-xs font-bold text-white shadow-sm hover:bg-sky-700 transition"
+          >
+            <UserPlus className="w-4 h-4" />
+            <span>{t.users.addUser}</span>
+          </button>
+        )}
+      </div>
+
+      {/* Role explanation cards */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="p-4 rounded-2xl bg-purple-50/70 border border-purple-200 text-xs text-purple-900 space-y-1">
+          <span className="font-bold flex items-center gap-1.5 text-purple-800">
+            <Shield className="w-4 h-4" />
+            Administrator
+          </span>
+          <p className="text-[11px] text-purple-700 leading-relaxed">{t.users.roleAdminDesc}</p>
+        </div>
+
+        <div className="p-4 rounded-2xl bg-sky-50/70 border border-sky-200 text-xs text-sky-900 space-y-1">
+          <span className="font-bold flex items-center gap-1.5 text-sky-800">
+            <UserCheck className="w-4 h-4" />
+            Engineer
+          </span>
+          <p className="text-[11px] text-sky-700 leading-relaxed">{t.users.roleEngineerDesc}</p>
+        </div>
+
+        <div className="p-4 rounded-2xl bg-slate-100 border border-slate-200 text-xs text-slate-900 space-y-1">
+          <span className="font-bold flex items-center gap-1.5 text-slate-800">
+            <Users className="w-4 h-4" />
+            Read Only
+          </span>
+          <p className="text-[11px] text-slate-600 leading-relaxed">{t.users.roleReadOnlyDesc}</p>
+        </div>
+      </div>
+
+      {/* Users Table */}
+      <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-xs">
+        <table className="w-full text-xs text-start">
+          <thead>
+            <tr className="bg-slate-900 text-white font-semibold">
+              <th className="p-3.5 text-start">{t.users.username}</th>
+              <th className="p-3.5 text-start">{t.users.fullName}</th>
+              <th className="p-3.5 text-start">{t.users.role}</th>
+              <th className="p-3.5 text-start">{t.users.department}</th>
+              <th className="p-3.5 text-start">{t.users.status}</th>
+              <th className="p-3.5 text-end">{lang === 'ar' ? 'الإجراءات' : 'Actions'}</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100 text-slate-700">
+            {users.map(u => (
+              <tr key={u.id} className="hover:bg-slate-50 transition">
+                <td className="p-3.5 font-mono font-bold text-slate-900">{u.username}</td>
+                <td className="p-3.5 font-semibold text-slate-800">{u.fullName}</td>
+                <td className="p-3.5">
+                  <span
+                    className={`rounded-md px-2 py-0.5 text-[10px] font-semibold border ${
+                      u.role === 'Administrator'
+                        ? 'bg-purple-50 text-purple-700 border-purple-200'
+                        : u.role === 'Engineer'
+                        ? 'bg-sky-50 text-sky-700 border-sky-200'
+                        : 'bg-slate-100 text-slate-700 border-slate-200'
+                    }`}
+                  >
+                    {u.role}
+                  </span>
+                </td>
+                <td className="p-3.5 text-slate-500">{u.department}</td>
+                <td className="p-3.5">
+                  <span
+                    className={`rounded-md px-2 py-0.5 text-[10px] font-semibold border ${
+                      u.isActive
+                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                        : 'bg-rose-50 text-rose-700 border-rose-200'
+                    }`}
+                  >
+                    {u.isActive ? t.users.active : t.users.inactive}
+                  </span>
+                </td>
+                <td className="p-3.5 text-end">
+                  {canAdminister(currentUser) && u.id !== currentUser?.id && (
+                    <button
+                      onClick={() => toggleUserActive(u)}
+                      className={`rounded-lg px-2.5 py-1 text-[11px] font-semibold border transition ${
+                        u.isActive
+                          ? 'border-rose-200 text-rose-700 hover:bg-rose-50'
+                          : 'border-emerald-200 text-emerald-700 hover:bg-emerald-50'
+                      }`}
+                    >
+                      {u.isActive ? t.users.inactive : t.users.active}
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Security notice */}
+      <div className="p-4 rounded-xl bg-slate-100 border border-slate-200 text-xs text-slate-600">
+        <p>{t.users.securityNotice}</p>
+      </div>
+
+      {/* Add User Modal */}
+      {showAddModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-xs animate-fade-in">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl border border-slate-200 space-y-4">
+            <div className="flex items-center justify-between border-b pb-3">
+              <h3 className="font-bold text-base text-slate-900">{t.users.addUser}</h3>
+              <button onClick={() => setShowAddModal(false)} className="text-slate-400 hover:text-slate-700">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {errorMsg && (
+              <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs">
+                {errorMsg}
+              </div>
+            )}
+
+            <form onSubmit={handleCreateUser} className="space-y-3 text-xs">
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">{t.users.username} *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. j.alhasan"
+                  value={username}
+                  onChange={e => setUsername(e.target.value)}
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-800"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">{t.users.fullName} *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Eng. Jassim Al-Hassan"
+                  value={fullName}
+                  onChange={e => setFullName(e.target.value)}
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-800"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">{t.users.role} *</label>
+                  <select
+                    value={role}
+                    onChange={e => setRole(e.target.value as UserRole)}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                  >
+                    <option value="Administrator">Administrator</option>
+                    <option value="Engineer">Engineer</option>
+                    <option value="ReadOnly">ReadOnly</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">{t.users.department}</label>
+                  <input
+                    type="text"
+                    value={department}
+                    onChange={e => setDepartment(e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">{t.users.password} *</label>
+                  <input
+                    type="password"
+                    required
+                    value={password}
+                    onChange={e => setPassword(e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">{t.users.confirmPassword} *</label>
+                  <input
+                    type="password"
+                    required
+                    value={confirmPassword}
+                    onChange={e => setConfirmPassword(e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-2 flex justify-end gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setShowAddModal(false)}
+                  className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                >
+                  {t.actions.cancel}
+                </button>
+                <button
+                  type="submit"
+                  className="rounded-xl bg-sky-600 px-5 py-2 text-xs font-semibold text-white hover:bg-sky-700 shadow-sm"
+                >
+                  {t.actions.save}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};

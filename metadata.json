@@ -1,0 +1,6 @@
+{
+  "name": "PVT Analysis System",
+  "description": "Offline-First PVT Analysis System & Digital Archive for Reservoir Fluids Division (شعبة الموائع المكمنية)",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
