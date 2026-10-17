@@ -65,12 +65,20 @@ class NotificationManager {
     if (this.confirmListener) {
       this.confirmListener(options);
     } else {
-      // Fallback if not mounted yet
-      if (window.confirm(`${options.title}\n\n${options.message}`)) {
-        options.onConfirm();
-      } else if (options.onCancel) {
-        options.onCancel();
+      // Fallback if modal container is not yet mounted
+      try {
+        if (typeof window !== 'undefined' && 'confirm' in window && !window.frameElement) {
+          if (window.confirm(`${options.title}\n\n${options.message}`)) {
+            options.onConfirm();
+          } else if (options.onCancel) {
+            options.onCancel();
+          }
+          return;
+        }
+      } catch {
+        // In iframe or sandboxed context, proceed with confirm
       }
+      options.onConfirm();
     }
   }
 

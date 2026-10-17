@@ -65,12 +65,12 @@ export const DashboardView: React.FC<Props> = ({
   const loadData = async () => {
     const [fieldsCount, reservoirsCount, wellsCount, samplesCount, analysesCount, reportsCount] =
       await Promise.all([
-        db.fields.where('isArchived').equals(0 as any).or('isArchived').equals(false as any).count(),
-        db.reservoirs.where('isArchived').equals(0 as any).or('isArchived').equals(false as any).count(),
-        db.wells.where('isArchived').equals(0 as any).or('isArchived').equals(false as any).count(),
-        db.samples.where('isArchived').equals(0 as any).or('isArchived').equals(false as any).count(),
-        db.analysisRecords.where('isArchived').equals(0 as any).or('isArchived').equals(false as any).count(),
-        db.reports.where('isArchived').equals(0 as any).or('isArchived').equals(false as any).count(),
+        db.fields.filter(x => !x.isArchived).count(),
+        db.reservoirs.filter(x => !x.isArchived).count(),
+        db.wells.filter(x => !x.isArchived).count(),
+        db.samples.filter(x => !x.isArchived).count(),
+        db.analysisRecords.filter(x => !x.isArchived).count(),
+        db.reports.filter(x => !x.isArchived).count(),
       ]);
 
     setStats({
