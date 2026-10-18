@@ -545,10 +545,15 @@ export const AttachmentManagerModal: React.FC<Props> = ({
                     <span>{uploadProgress}%</span>
                   </div>
                   <div className="h-2 w-full rounded-full bg-slate-200 overflow-hidden">
-                    <div
-                      className="h-full bg-sky-600 transition-all duration-300"
-                      style={{ width: `${uploadProgress}%` }}
-                    />
+                    <svg className="h-full w-full" preserveAspectRatio="none">
+                      <rect
+                        x="0"
+                        y="0"
+                        width={`${uploadProgress}%`}
+                        height="100%"
+                        className="fill-sky-600 transition-all duration-300"
+                      />
+                    </svg>
                   </div>
                 </div>
               )}

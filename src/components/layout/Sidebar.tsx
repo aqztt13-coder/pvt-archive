@@ -137,12 +137,17 @@ export const Sidebar: React.FC<Props> = ({
             <span className="font-mono text-slate-300">{storageUsagePercent.toFixed(1)}%</span>
           </div>
           <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-800">
-            <div
-              className={`h-full transition-all duration-500 rounded-full ${
-                storageUsagePercent > 80 ? 'bg-rose-500' : 'bg-sky-500'
-              }`}
-              style={{ width: `${Math.min(100, Math.max(3, storageUsagePercent))}%` }}
-            />
+            <svg className="h-full w-full" preserveAspectRatio="none">
+              <rect
+                x="0"
+                y="0"
+                width={`${Math.min(100, Math.max(3, storageUsagePercent))}%`}
+                height="100%"
+                className={`transition-all duration-500 ${
+                  storageUsagePercent > 80 ? 'fill-rose-500' : 'fill-sky-500'
+                }`}
+              />
+            </svg>
           </div>
           <p className="text-[10px] text-slate-500 truncate">
             {lang === 'ar' ? 'التخزين محلي 100% دون خوادم' : 'Strictly offline browser db'}
