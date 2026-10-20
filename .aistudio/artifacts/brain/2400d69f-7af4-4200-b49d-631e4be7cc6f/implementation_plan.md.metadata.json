@@ -1,0 +1,6 @@
+{
+  "summary": "Implementation plan to connect Google Workspace OAuth with Gmail API (gmail.send) to dispatch real password reset links to user Gmail inboxes, enforce single-use time-limited reset tokens, and test real email delivery.",
+  "updatedAt": "2026-10-20T10:12:27.687260795Z",
+  "requestFeedback": true,
+  "userFacing": true
+}

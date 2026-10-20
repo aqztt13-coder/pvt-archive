@@ -358,7 +358,7 @@ export const SettingsView: React.FC<Props> = ({
               </label>
               <input
                 type="password"
-                placeholder={lang === 'ar' ? 'الرمز الحالي أو 123456' : 'Current code or 123456'}
+                placeholder={lang === 'ar' ? 'أدخل الرمز الحالي...' : 'Enter current code...'}
                 id="settings-current-pwd"
                 className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-800"
               />

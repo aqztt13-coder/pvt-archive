@@ -38,6 +38,7 @@ export default function App() {
 
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [isPWAInstallModalOpen, setIsPWAInstallModalOpen] = useState(false);
+  const [resetToken, setResetToken] = useState<string | null>(null);
   const [storagePersisted, setStoragePersisted] = useState(false);
   const [storageUsagePercent, setStorageUsagePercent] = useState(0);
 
@@ -47,8 +48,23 @@ export default function App() {
 
   const isOnline = useOnlineStatus();
 
-  // Initialization
+  // Initialization & URL reset_token detection
   useEffect(() => {
+    // 0. Check for password reset token in URL parameters or hash
+    const params = new URLSearchParams(window.location.search);
+    const tokenFromQuery = params.get('reset_token');
+    if (tokenFromQuery) {
+      setResetToken(tokenFromQuery);
+      setIsLoginModalOpen(true);
+    } else if (window.location.hash.includes('reset_token=')) {
+      const hashParams = new URLSearchParams(window.location.hash.substring(1));
+      const tokenFromHash = hashParams.get('reset_token');
+      if (tokenFromHash) {
+        setResetToken(tokenFromHash);
+        setIsLoginModalOpen(true);
+      }
+    }
+
     async function init() {
       // 1. Seed default petroleum data if empty
       await seedInitialDatabaseIfEmpty();
@@ -225,10 +241,15 @@ export default function App() {
       {/* Local User Switching & Auth Modal */}
       <LoginModal
         isOpen={isLoginModalOpen}
-        onClose={() => setIsLoginModalOpen(false)}
+        onClose={() => {
+          setIsLoginModalOpen(false);
+          setResetToken(null);
+        }}
         currentUser={currentUser}
         onUserChanged={user => setCurrentUser(user)}
         lang={lang}
+        resetToken={resetToken}
+        onClearResetToken={() => setResetToken(null)}
       />
 
       {/* Offline Toast Banner (shown when true offline occurs) */}

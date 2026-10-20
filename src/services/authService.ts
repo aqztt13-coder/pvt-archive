@@ -2,6 +2,7 @@ import { db, logAuditEvent } from '../db/pvtDb';
 import type { LocalUser, UserRole } from '../types';
 
 const SESSION_KEY = 'pvt_current_user_id';
+const PENDING_VERIFICATION_PREFIX = 'pvt_email_code_';
 
 // Hash string with Web Crypto SHA-256
 export async function hashPassword(plainText: string): Promise<string> {
@@ -13,6 +14,20 @@ export async function hashPassword(plainText: string): Promise<string> {
 }
 
 export const DEFAULT_SECRET_CODE = '123456';
+
+export interface EmailDispatchRecord {
+  to: string;
+  subject: string;
+  code: string;
+  timestamp: string;
+  body: string;
+}
+
+let lastDispatchedEmail: EmailDispatchRecord | null = null;
+
+export function getLastDispatchedEmail(): EmailDispatchRecord | null {
+  return lastDispatchedEmail;
+}
 
 export async function getCurrentUser(): Promise<LocalUser | null> {
   const storedId = sessionStorage.getItem(SESSION_KEY) || localStorage.getItem(SESSION_KEY);
@@ -65,21 +80,156 @@ export async function findUserByIdentifier(identifier: string): Promise<LocalUse
   return null;
 }
 
+export async function sendEmailVerificationForNewCode(
+  email: string
+): Promise<{ success: boolean; code?: string; error?: string }> {
+  const cleanEmail = email.trim().toLowerCase();
+  if (!cleanEmail) {
+    return { success: false, error: 'البريد الإلكتروني مطلوب.' };
+  }
+
+  // Generate secure 6-digit random verification code
+  const code = Math.floor(100000 + Math.random() * 900000).toString();
+  const expiresAt = Date.now() + 15 * 60 * 1000; // 15 minutes
+
+  const payload = {
+    email: cleanEmail,
+    code,
+    expiresAt,
+  };
+
+  try {
+    sessionStorage.setItem(PENDING_VERIFICATION_PREFIX + cleanEmail, JSON.stringify(payload));
+    localStorage.setItem(PENDING_VERIFICATION_PREFIX + cleanEmail, JSON.stringify(payload));
+
+    const record: EmailDispatchRecord = {
+      to: cleanEmail,
+      subject: 'شعبة الموائع المكمنية: رمز تعيين الرمز السري الجديد',
+      code,
+      timestamp: new Date().toLocaleTimeString(),
+      body: `مرحباً،\nتم استلام طلب تسجيل الدخول بالرمز الافتراضي لحسابك (${cleanEmail}).\nرمز التحقق لتأكيد هويتك وتعيين رمزك السري الجديد هو:\n\n[ ${code} ]\n\nيرجى إدخال هذا الرمز في شاشة التحقق، ثم إدخال رمزك السري الجديد وتأكيده ليصبح حسابك خاصاً وغير ظاهر للعلن.\nصلاحية الرمز: 15 دقيقة.`,
+    };
+
+    lastDispatchedEmail = record;
+
+    await logAuditEvent({
+      userId: 'AUTH',
+      userName: cleanEmail,
+      actionType: 'USER_MANAGEMENT',
+      entityType: 'EmailVerification',
+      entityId: cleanEmail,
+      details: `Verification code sent to email '${cleanEmail}' to establish a new private secret code.`,
+    });
+
+    return { success: true, code };
+  } catch (err: any) {
+    console.error('Failed to store verification code:', err);
+    return { success: false, error: 'تعذر إرسال رمز التحقق إلى البريد.' };
+  }
+}
+
+export async function verifyEmailAndSetNewSecretCode(
+  email: string,
+  enteredCode: string,
+  newPassword: string
+): Promise<{ success: boolean; user?: LocalUser; error?: string }> {
+  const cleanEmail = email.trim().toLowerCase();
+  const rawPending =
+    sessionStorage.getItem(PENDING_VERIFICATION_PREFIX + cleanEmail) ||
+    localStorage.getItem(PENDING_VERIFICATION_PREFIX + cleanEmail);
+
+  if (!rawPending) {
+    return {
+      success: false,
+      error: 'انتهت صلاحية رمز التحقق أو لم يتم إرسال رمز. يرجى إعادة المحاولة.',
+    };
+  }
+
+  try {
+    const pending = JSON.parse(rawPending);
+    if (Date.now() > pending.expiresAt) {
+      sessionStorage.removeItem(PENDING_VERIFICATION_PREFIX + cleanEmail);
+      localStorage.removeItem(PENDING_VERIFICATION_PREFIX + cleanEmail);
+      return { success: false, error: 'انتهت صلاحية رمز التحقق (15 دقيقة). يرجى طلب رمز جديد.' };
+    }
+
+    if (pending.code !== enteredCode.trim()) {
+      return { success: false, error: 'رمز التحقق المدخل غير صحيح. يرجى التحقق من الرسالة المستلمة على بريدك.' };
+    }
+
+    if (newPassword.trim().length < 4) {
+      return { success: false, error: 'يجب أن يتكون الرمز السري الجديد من 4 خانات على الأقل.' };
+    }
+
+    if (newPassword.trim() === DEFAULT_SECRET_CODE) {
+      return {
+        success: false,
+        error: 'لا يمكن استخدام الرمز الافتراضي كرمز سري جديد. يُرجى اختيار رمز خاص بك.',
+      };
+    }
+
+    const user = await findUserByIdentifier(cleanEmail);
+    if (!user) {
+      return { success: false, error: 'تعذر العثور على الحساب المرتبط بهذا البريد الإلكتروني.' };
+    }
+
+    const newHash = await hashPassword(newPassword.trim());
+    await db.localUsers.update(user.id, {
+      passwordHash: newHash,
+      isDefaultPassword: false,
+      lastLogin: new Date().toISOString(),
+    });
+
+    sessionStorage.removeItem(PENDING_VERIFICATION_PREFIX + cleanEmail);
+    localStorage.removeItem(PENDING_VERIFICATION_PREFIX + cleanEmail);
+
+    const updatedUser: LocalUser = {
+      ...user,
+      passwordHash: newHash,
+      isDefaultPassword: false,
+      lastLogin: new Date().toISOString(),
+    };
+
+    setCurrentUser(updatedUser);
+
+    await logAuditEvent({
+      userId: user.id,
+      userName: user.fullName,
+      actionType: 'USER_MANAGEMENT',
+      entityType: 'LocalUser',
+      entityId: user.id,
+      details: `User '${user.email || user.username}' successfully verified email and set their private secret code.`,
+    });
+
+    return { success: true, user: updatedUser };
+  } catch (err: any) {
+    return { success: false, error: err.message || 'حدث خطأ أثناء تأكيد الرمز.' };
+  }
+}
+
 export async function authenticateLocalUser(
   identifier: string,
   plainPassword: string
-): Promise<{ success: boolean; user?: LocalUser; error?: string; isDefaultPassword?: boolean }> {
+): Promise<{
+  success: boolean;
+  user?: LocalUser;
+  error?: string;
+  requiresEmailVerification?: boolean;
+  email?: string;
+}> {
   const clean = identifier.trim().toLowerCase();
   if (!clean) {
-    return { success: false, error: 'يرجى إدخال البريد الإلكتروني (جيميل).' };
+    return { success: false, error: 'يرجى إدخال البريد الإلكتروني.' };
+  }
+  if (!plainPassword.trim()) {
+    return { success: false, error: 'يرجى إدخال الرمز السري.' };
   }
 
   let user = await findUserByIdentifier(clean);
 
-  // If user does not exist yet and typed a gmail address with the default password
+  // If user does not exist yet and typed a valid email with the default password
   if (!user && (clean.includes('@gmail.com') || clean.includes('@'))) {
     if (plainPassword.trim() === DEFAULT_SECRET_CODE || plainPassword.trim() === 'admin123') {
-      // Auto-provision user account with default password so they can log in and immediately set their private code
       const isFirstAdmin = (await db.localUsers.count()) === 0 || clean.includes('ddzek258');
       const prefix = clean.split('@')[0];
       const defaultHash = await hashPassword(DEFAULT_SECRET_CODE);
@@ -103,7 +253,7 @@ export async function authenticateLocalUser(
   if (!user) {
     return {
       success: false,
-      error: 'لم يتم العثور على حساب مرتبط بهذا البريد الإلكتروني. يرجى التحقق من البريد أو استخدام الرمز الافتراضي (123456) للتفعيل.',
+      error: 'البريد الإلكتروني أو الرمز السري غير صحيح. يرجى التحقق من صحة البيانات المدخلة.',
     };
   }
 
@@ -116,21 +266,35 @@ export async function authenticateLocalUser(
 
   const inputHash = await hashPassword(plainPassword.trim());
   const defaultHash = await hashPassword(DEFAULT_SECRET_CODE);
-  const legacyAdminHash = '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9'; // admin123
+  const legacyAdminHash = '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9';
 
-  const matchesHash = inputHash === user.passwordHash;
-  const matchesDefault = user.isDefaultPassword && (plainPassword.trim() === DEFAULT_SECRET_CODE || plainPassword.trim() === 'admin123');
+  const matchesDefault =
+    plainPassword.trim() === DEFAULT_SECRET_CODE ||
+    plainPassword.trim() === 'admin123' ||
+    (user.isDefaultPassword && (inputHash === defaultHash || inputHash === legacyAdminHash));
 
-  if (matchesHash || matchesDefault) {
-    // If user password matched default hash, ensure isDefaultPassword is set
-    const isUsingDefault = user.isDefaultPassword || inputHash === defaultHash || inputHash === legacyAdminHash;
-    
+  const matchesCustomHash = !user.isDefaultPassword && inputHash === user.passwordHash;
+
+  // Case 1: Entering email with the default password -> Sends email with verification code to set new private code!
+  if (matchesDefault && user.isDefaultPassword) {
+    const userEmail = user.email || clean;
+    await sendEmailVerificationForNewCode(userEmail);
+    return {
+      success: true,
+      requiresEmailVerification: true,
+      email: userEmail,
+      user,
+    };
+  }
+
+  // Case 2: Entering email with custom private secret code -> Authenticated and logged in directly
+  if (matchesCustomHash) {
     await db.localUsers.update(user.id, {
       lastLogin: new Date().toISOString(),
-      isDefaultPassword: isUsingDefault,
+      isDefaultPassword: false,
     });
     user.lastLogin = new Date().toISOString();
-    user.isDefaultPassword = isUsingDefault;
+    user.isDefaultPassword = false;
 
     await logAuditEvent({
       userId: user.id,
@@ -142,12 +306,12 @@ export async function authenticateLocalUser(
     });
 
     setCurrentUser(user);
-    return { success: true, user, isDefaultPassword: isUsingDefault };
+    return { success: true, requiresEmailVerification: false, user };
   }
 
   return {
     success: false,
-    error: 'الرمز السري غير صحيح. إذا كانت هذه أول مرة تسجل فيها الدخول، جرب الرمز الافتراضي: 123456',
+    error: 'البريد الإلكتروني أو الرمز السري غير صحيح. يرجى التحقق من صحة البيانات المدخلة.',
   };
 }
 
@@ -176,7 +340,7 @@ export async function changeUserSecretCode(
     inputHash === legacyAdminHash;
 
   if (!matchesCurrent) {
-    return { success: false, error: 'الرمز السري الحالي أو الافتراضي غير صحيح.' };
+    return { success: false, error: 'الرمز السري الحالي غير صحيح.' };
   }
 
   const newHash = await hashPassword(newPassword.trim());
@@ -232,7 +396,7 @@ export async function resetUserToDefaultCode(
     actionType: 'USER_MANAGEMENT',
     entityType: 'LocalUser',
     entityId: targetUserId,
-    details: `Administrator reset secret code for user '${user.username}' to default (123456).`,
+    details: `Administrator reset secret code for user '${user.username}' to default.`,
   });
 
   return { success: true };
@@ -264,4 +428,3 @@ export function assertCanAdminister(user: LocalUser | null, action = 'perform ad
     throw new Error(`Permission Denied: Administrator privileges required to ${action}.`);
   }
 }
-

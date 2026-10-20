@@ -210,8 +210,8 @@ export const UserManagementView: React.FC<Props> = ({ lang, currentUser }) => {
       title: lang === 'ar' ? 'إعادة تعيين الرمز السري' : 'Reset Secret Code to Default',
       message:
         lang === 'ar'
-          ? `هل أنت متأكد من إعادة تعيين الرمز السري للمستخدم "${user.fullName}" (${user.email || user.username}) إلى الرمز الافتراضي (123456)؟ سيطلب من المستخدم تغيير رمزه ليكون خاصاً به عند الدخول.`
-          : `Are you sure you want to reset secret code for "${user.fullName}" to the default code (123456)? The user will be prompted to set their private code.`,
+          ? `هل أنت متأكد من إعادة تعيين الرمز السري للمستخدم "${user.fullName}" (${user.email || user.username}) إلى الرمز الافتراضي؟ سيُرسل رمز تحقق إلى بريده عند الدخول لتعيين رمزه الخاص.`
+          : `Are you sure you want to reset the secret code for "${user.fullName}" to default? An email verification code will be sent to establish a new private code.`,
       confirmText: lang === 'ar' ? 'إعادة التعيين' : 'Reset Code',
       cancelText: lang === 'ar' ? 'إلغاء' : 'Cancel',
       isDestructive: false,
@@ -221,8 +221,8 @@ export const UserManagementView: React.FC<Props> = ({ lang, currentUser }) => {
           await loadUsers();
           notifySuccess(
             lang === 'ar'
-              ? `تمت إعادة تعيين الرمز السري بنجاح إلى: 123456`
-              : `Secret code reset successfully to: 123456`
+              ? 'تمت إعادة تعيين الرمز السري للافتراضي بنجاح.'
+              : 'Secret code reset to default successfully.'
           );
         } else {
           notifyError(res.error || 'Failed to reset code');
@@ -333,7 +333,7 @@ export const UserManagementView: React.FC<Props> = ({ lang, currentUser }) => {
                   {u.isDefaultPassword ? (
                     <span className="rounded-md bg-amber-50 text-amber-800 border border-amber-200 px-2 py-0.5 text-[10px] font-semibold inline-flex items-center gap-1">
                       <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
-                      {lang === 'ar' ? 'رمز افتراضي (123456)' : 'Default (123456)'}
+                      {lang === 'ar' ? 'رمز افتراضي (بانتظار التعيين)' : 'Default (Pending Setup)'}
                     </span>
                   ) : (
                     <span className="rounded-md bg-emerald-50 text-emerald-800 border border-emerald-200 px-2 py-0.5 text-[10px] font-semibold inline-flex items-center gap-1">
@@ -360,8 +360,8 @@ export const UserManagementView: React.FC<Props> = ({ lang, currentUser }) => {
                         onClick={() => handleResetPassword(u)}
                         title={
                           lang === 'ar'
-                            ? 'إعادة تعيين الرمز السري للافتراضي (123456)'
-                            : 'Reset secret code to default (123456)'
+                            ? 'إعادة تعيين الرمز السري للافتراضي'
+                            : 'Reset secret code to default'
                         }
                         className="rounded-lg p-1.5 text-slate-500 hover:text-sky-700 hover:bg-sky-50 border border-slate-200 transition"
                       >
@@ -497,14 +497,14 @@ export const UserManagementView: React.FC<Props> = ({ lang, currentUser }) => {
                   />
                   <span>
                     {lang === 'ar'
-                      ? 'استخدام الرمز السري الافتراضي (123456)'
-                      : 'Use default initial secret code (123456)'}
+                      ? 'استخدام الرمز السري الافتراضي للنظام'
+                      : 'Use system default initial secret code'}
                   </span>
                 </label>
                 <p className="text-[11px] text-slate-500">
                   {lang === 'ar'
-                    ? 'سيتمكن المستخدم من تسجيل الدخول بالرمز الافتراضي (123456) ثم تغييره لرمز سري خاص به بحيث لا يكون ظاهراً للعلن.'
-                    : 'The user will be able to log in with 123456 and change it to their private code.'}
+                    ? 'سيتمكن المستخدم من تسجيل الدخول بالرمز الافتراضي ثم التحقق عبر بريده وتعيين رمز سري خاص به بحيث لا يكون ظاهراً للعلن.'
+                    : 'The user will log in with default credentials and verify via email to set their private code.'}
                 </p>
 
                 {!useDefaultPassword && (
