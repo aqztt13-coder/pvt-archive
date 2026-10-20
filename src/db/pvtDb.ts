@@ -50,6 +50,10 @@ export class PVTDatabase extends Dexie {
     this.version(2).stores({
       attachments: 'id, reportId, sampleId, wellId, linkedType, linkedId, fileName, uploadDate, version, isArchived, checksum, storageBackend',
     });
+
+    this.version(3).stores({
+      localUsers: 'id, username, email, role, isActive',
+    });
   }
 }
 
@@ -116,46 +120,116 @@ export async function requestStoragePersistence(): Promise<boolean> {
   return false;
 }
 
+export async function syncDefaultUserCredentials() {
+  try {
+    const defaultPasswordHash = '8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92'; // 123456
+    const legacyAdminHash = '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9'; // admin123
+
+    // Check if user ddzek258@gmail.com exists
+    const adminUser = await db.localUsers.where('email').equalsIgnoreCase('ddzek258@gmail.com').first();
+    if (!adminUser) {
+      // Check if existing admin user exists
+      const existingAdmin = await db.localUsers.where('username').equalsIgnoreCase('admin').first();
+      if (existingAdmin) {
+        await db.localUsers.update(existingAdmin.id, {
+          email: 'ddzek258@gmail.com',
+          isDefaultPassword: existingAdmin.passwordHash === legacyAdminHash || existingAdmin.passwordHash === defaultPasswordHash,
+        });
+      } else {
+        await db.localUsers.add({
+          id: 'USR-ADMIN-DDZEK',
+          username: 'ddzek258',
+          email: 'ddzek258@gmail.com',
+          fullName: 'Dr. Tariq Al-Husseini (Admin)',
+          role: 'Administrator',
+          passwordHash: defaultPasswordHash,
+          department: 'Reservoir Fluids Division',
+          isActive: true,
+          isDefaultPassword: true,
+          createdAt: new Date().toISOString(),
+        });
+      }
+    }
+
+    // Ensure all users have email and isDefaultPassword populated
+    const allUsers = await db.localUsers.toArray();
+    for (const u of allUsers) {
+      const updates: Partial<LocalUser> = {};
+      if (!u.email) {
+        if (u.username.includes('@')) {
+          updates.email = u.username.toLowerCase();
+        } else if (u.username === 'admin' || u.username === 'ddzek258') {
+          updates.email = 'ddzek258@gmail.com';
+        } else {
+          updates.email = `${u.username.toLowerCase()}@gmail.com`;
+        }
+      }
+      if (u.isDefaultPassword === undefined) {
+        updates.isDefaultPassword = (
+          u.passwordHash === defaultPasswordHash ||
+          u.passwordHash === legacyAdminHash ||
+          u.passwordHash === '37ad8b3e8e2fa53a793a525bc8b9813c965c404cf1e2ebcd1154c502573f0896' ||
+          u.passwordHash === 'bb72076295ee8cfb186b432a51f8fd60e34c567bb014fb00ae1f9c8f001efc9b'
+        );
+      }
+      if (Object.keys(updates).length > 0) {
+        await db.localUsers.update(u.id, updates);
+      }
+    }
+  } catch (err) {
+    console.error('Error synchronizing default user credentials:', err);
+  }
+}
+
 // Initial Seeder for testing and first-time experience
 export async function seedInitialDatabaseIfEmpty() {
   const usersCount = await db.localUsers.count();
-  if (usersCount > 0) return; // Already initialized
+  if (usersCount > 0) {
+    await syncDefaultUserCredentials();
+    return; // Already initialized
+  }
 
   console.log('Seeding PVT Analysis System initial local database...');
 
-  // Default Administrator (password: admin123) and Engineer (engineer123)
-  // SHA-256 for 'admin123': 240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9
-  // SHA-256 for 'engineer123': 37ad8b3e8e2fa53a793a525bc8b9813c965c404cf1e2ebcd1154c502573f0896
-  // SHA-256 for 'readonly123': bb72076295ee8cfb186b432a51f8fd60e34c567bb014fb00ae1f9c8f001efc9b
+  // Default secret code: 123456
+  // SHA-256 for '123456': 8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92
+  const defaultPasswordHash = '8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92';
+
   const initialUsers: LocalUser[] = [
     {
       id: 'USR-ADMIN',
-      username: 'admin',
+      username: 'ddzek258',
+      email: 'ddzek258@gmail.com',
       fullName: 'Dr. Tariq Al-Husseini (Admin)',
       role: 'Administrator',
-      passwordHash: '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9', // admin123
+      passwordHash: defaultPasswordHash, // 123456
       department: 'Reservoir Fluids Division',
       isActive: true,
+      isDefaultPassword: true,
       createdAt: new Date().toISOString(),
     },
     {
       id: 'USR-ENG-1',
       username: 'engineer',
+      email: 'engineer@gmail.com',
       fullName: 'Eng. Sarah Al-Khafaji (PVT Specialist)',
       role: 'Engineer',
-      passwordHash: '37ad8b3e8e2fa53a793a525bc8b9813c965c404cf1e2ebcd1154c502573f0896', // engineer123
+      passwordHash: defaultPasswordHash, // 123456
       department: 'Fluid PVT Laboratory',
       isActive: true,
+      isDefaultPassword: true,
       createdAt: new Date().toISOString(),
     },
     {
       id: 'USR-READONLY',
       username: 'viewer',
+      email: 'viewer@gmail.com',
       fullName: 'Eng. Omar Mansour (Auditor)',
       role: 'ReadOnly',
-      passwordHash: 'bb72076295ee8cfb186b432a51f8fd60e34c567bb014fb00ae1f9c8f001efc9b', // readonly123
+      passwordHash: defaultPasswordHash, // 123456
       department: 'Reservoir Engineering Dept.',
       isActive: true,
+      isDefaultPassword: true,
       createdAt: new Date().toISOString(),
     },
   ];

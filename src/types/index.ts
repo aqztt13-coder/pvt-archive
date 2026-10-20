@@ -5,11 +5,13 @@ export type UserRole = 'Administrator' | 'Engineer' | 'ReadOnly';
 export interface LocalUser {
   id: string;
   username: string;
+  email?: string;
   fullName: string;
   role: UserRole;
   passwordHash: string;
   department: string;
   isActive: boolean;
+  isDefaultPassword?: boolean;
   createdAt: string;
   lastLogin?: string;
 }

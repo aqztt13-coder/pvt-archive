@@ -56,6 +56,9 @@ export default function App() {
       // 2. Fetch current user
       const user = await getCurrentUser();
       setCurrentUser(user);
+      if (!user) {
+        setIsLoginModalOpen(true);
+      }
 
       // 3. Storage persistence check
       const st = await checkStoragePersistence();

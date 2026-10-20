@@ -68,9 +68,7 @@ export const Header: React.FC<Props> = ({
               </span>
             </div>
             <div className="flex items-center gap-2 text-[11px] text-slate-500">
-              <span>Reservoir Fluids Division</span>
-              <span className="text-slate-300">•</span>
-              <span className="font-mono text-slate-400">v1.0.0 Offline PWA</span>
+              <span>{lang === 'ar' ? 'شعبة الموائع المكمنية' : 'Reservoir Fluids Division'}</span>
             </div>
           </div>
         </div>
@@ -133,19 +131,41 @@ export const Header: React.FC<Props> = ({
           <span>{lang === 'ar' ? 'English' : 'العربية'}</span>
         </button>
 
-        {/* User Account / Role Switcher */}
+        {/* User Account / Security Switcher */}
         <button
           onClick={onOpenLogin}
-          className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs text-slate-700 hover:bg-slate-100 hover:border-slate-300 transition"
+          className={`flex items-center gap-2 rounded-xl border px-2.5 py-1 text-xs transition ${
+            currentUser?.isDefaultPassword
+              ? 'border-amber-300 bg-amber-50/80 text-amber-900 hover:bg-amber-100'
+              : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100 hover:border-slate-300'
+          }`}
+          title={
+            currentUser?.isDefaultPassword
+              ? (lang === 'ar' ? 'تنبيه: أنت تستخدم الرمز الافتراضي. انقر لتغييره' : 'Notice: Using default code. Click to change')
+              : (lang === 'ar' ? 'الحساب والأمان' : 'Account & Security')
+          }
         >
-          <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-slate-900 text-white font-bold text-[10px]">
-            {currentUser ? currentUser.username.charAt(0).toUpperCase() : 'U'}
+          <div className="relative flex h-6 w-6 items-center justify-center rounded-lg bg-slate-900 text-white font-bold text-[10px]">
+            {currentUser ? (currentUser.username || currentUser.email || 'U').charAt(0).toUpperCase() : 'U'}
+            {currentUser?.isDefaultPassword && (
+              <span className="absolute -top-1 -right-1 flex h-2.5 w-2.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500"></span>
+              </span>
+            )}
           </div>
           <div className="hidden sm:block text-start leading-tight">
-            <div className="font-semibold text-slate-900 truncate max-w-[110px]">
-              {currentUser?.fullName.split(' ')[0] || 'User'}
+            <div className="font-semibold text-slate-900 truncate max-w-[120px]">
+              {currentUser?.fullName.split(' ')[0] || (currentUser?.email ? currentUser.email.split('@')[0] : 'User')}
             </div>
-            <div className="text-[10px] text-slate-500">{currentUser?.role || 'Guest'}</div>
+            <div className="text-[10px] text-slate-500 flex items-center gap-1">
+              <span>{currentUser?.role || 'Guest'}</span>
+              {currentUser?.isDefaultPassword && (
+                <span className="text-[9px] font-semibold text-amber-700 bg-amber-100 px-1 rounded">
+                  {lang === 'ar' ? 'رمز افتراضي' : 'Default'}
+                </span>
+              )}
+            </div>
           </div>
         </button>
 

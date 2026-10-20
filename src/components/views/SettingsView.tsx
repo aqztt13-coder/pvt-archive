@@ -315,6 +315,130 @@ export const SettingsView: React.FC<Props> = ({
         </div>
       </div>
 
+      {/* User Security & Secret Code Card */}
+      {currentUser && (
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-xs space-y-4">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+            <div className="flex items-center gap-2.5">
+              <div className="p-2 rounded-xl bg-sky-50 text-sky-600">
+                <ShieldCheck className="w-5 h-5" />
+              </div>
+              <div>
+                <h4 className="font-bold text-slate-900 text-xs">
+                  {lang === 'ar' ? 'الأمان وتغيير الرمز السري' : 'Security & Secret Code'}
+                </h4>
+                <p className="text-[11px] text-slate-500">
+                  {lang === 'ar'
+                    ? 'التحكم في الرمز السري وتأمينه بحيث يكون خاصاً وغير ظاهر للعلن'
+                    : 'Manage your confidential secret code to ensure privacy'}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-xs font-semibold text-slate-700">
+                {currentUser.email || currentUser.username}
+              </span>
+              {currentUser.isDefaultPassword ? (
+                <span className="rounded-md bg-amber-50 text-amber-800 border border-amber-200 px-2 py-0.5 text-[10px] font-semibold">
+                  {lang === 'ar' ? 'رمز افتراضي' : 'Default Code'}
+                </span>
+              ) : (
+                <span className="rounded-md bg-emerald-50 text-emerald-800 border border-emerald-200 px-2 py-0.5 text-[10px] font-semibold">
+                  {lang === 'ar' ? 'رمز سري محمي' : 'Secured Code'}
+                </span>
+              )}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+            <div>
+              <label className="block font-bold text-slate-700 mb-1">
+                {lang === 'ar' ? 'الرمز السري الحالي / الافتراضي:' : 'Current / Default Code:'}
+              </label>
+              <input
+                type="password"
+                placeholder={lang === 'ar' ? 'الرمز الحالي أو 123456' : 'Current code or 123456'}
+                id="settings-current-pwd"
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-800"
+              />
+            </div>
+            <div>
+              <label className="block font-bold text-slate-700 mb-1">
+                {lang === 'ar' ? 'الرمز السري الجديد:' : 'New Private Code:'}
+              </label>
+              <input
+                type="password"
+                placeholder="••••••••"
+                id="settings-new-pwd"
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-800"
+              />
+            </div>
+            <div>
+              <label className="block font-bold text-slate-700 mb-1">
+                {lang === 'ar' ? 'تأكيد الرمز الجديد:' : 'Confirm New Code:'}
+              </label>
+              <input
+                type="password"
+                placeholder="••••••••"
+                id="settings-confirm-pwd"
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-800"
+              />
+            </div>
+          </div>
+
+          <div className="flex justify-end">
+            <button
+              onClick={async () => {
+                const curEl = document.getElementById('settings-current-pwd') as HTMLInputElement;
+                const newEl = document.getElementById('settings-new-pwd') as HTMLInputElement;
+                const confEl = document.getElementById('settings-confirm-pwd') as HTMLInputElement;
+
+                if (!curEl?.value || !newEl?.value || !confEl?.value) {
+                  notifyError(
+                    lang === 'ar'
+                      ? 'يرجى ملء جميع حقول الرمز السري.'
+                      : 'Please fill in all secret code fields.'
+                  );
+                  return;
+                }
+
+                if (newEl.value !== confEl.value) {
+                  notifyError(
+                    lang === 'ar'
+                      ? 'الرمز السري الجديد وتأكيده غير متطابقين.'
+                      : 'New code and confirmation do not match.'
+                  );
+                  return;
+                }
+
+                const res = await (await import('../../services/authService')).changeUserSecretCode(
+                  currentUser.id,
+                  curEl.value,
+                  newEl.value
+                );
+
+                if (res.success) {
+                  notifySuccess(
+                    lang === 'ar'
+                      ? 'تم تحديث وتشفير رمزك السري الجديد بنجاح! أصبح رمزك سرياً وخاصاً بك.'
+                      : 'Secret code updated successfully! Your code is now confidential.'
+                  );
+                  curEl.value = '';
+                  newEl.value = '';
+                  confEl.value = '';
+                } else {
+                  notifyError(res.error || 'Failed to update code');
+                }
+              }}
+              className="flex items-center gap-1.5 rounded-xl bg-sky-600 px-4 py-2 text-xs font-bold text-white shadow-sm hover:bg-sky-700 transition"
+            >
+              <span>{lang === 'ar' ? 'حفظ وتأمين الرمز السري' : 'Save & Secure Code'}</span>
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Danger Zone: Demo data reset */}
       {canAdminister(currentUser) && (
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-xs space-y-3">
@@ -336,7 +460,7 @@ export const SettingsView: React.FC<Props> = ({
 
       {/* System Info */}
       <div className="p-4 rounded-xl bg-slate-100 border border-slate-200 text-xs text-slate-600 flex items-center justify-between">
-        <span>{t.settings.appVersion} 1.0.0-offline</span>
+        <span>{lang === 'ar' ? 'نظام تحاليل الموائع المكمنية' : 'PVT Analysis System'}</span>
         <span className="font-mono text-slate-500">IndexedDB: PVTAnalysisSystemDB</span>
       </div>
     </div>

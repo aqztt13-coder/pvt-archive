@@ -10,9 +10,16 @@ import {
   UserX,
   X,
   Lock,
+  Mail,
+  RotateCcw,
 } from 'lucide-react';
 import { db, logAuditEvent } from '../../db/pvtDb';
-import { hashPassword, canAdminister } from '../../services/authService';
+import {
+  hashPassword,
+  canAdminister,
+  resetUserToDefaultCode,
+  DEFAULT_SECRET_CODE,
+} from '../../services/authService';
 import {
   notifySuccess,
   notifyError,
@@ -34,11 +41,13 @@ export const UserManagementView: React.FC<Props> = ({ lang, currentUser }) => {
 
   // Form states
   const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [fullName, setFullName] = useState('');
   const [role, setRole] = useState<UserRole>('Engineer');
   const [department, setDepartment] = useState('Reservoir Fluids Division');
-  const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
+  const [useDefaultPassword, setUseDefaultPassword] = useState(true);
+  const [password, setPassword] = useState(DEFAULT_SECRET_CODE);
+  const [confirmPassword, setConfirmPassword] = useState(DEFAULT_SECRET_CODE);
   const [errorMsg, setErrorMsg] = useState('');
 
   useEffect(() => {
@@ -55,31 +64,51 @@ export const UserManagementView: React.FC<Props> = ({ lang, currentUser }) => {
     setErrorMsg('');
 
     if (!canAdminister(currentUser)) {
-      setErrorMsg(lang === 'ar' ? 'فقط مدير النظام يملك صلاحية إضافة مستخدمين.' : 'Only administrators can create users.');
+      setErrorMsg(
+        lang === 'ar'
+          ? 'فقط مدير النظام يملك صلاحية إضافة مستخدمين.'
+          : 'Only administrators can create users.'
+      );
       return;
     }
 
-    if (password !== confirmPassword) {
+    const chosenPassword = useDefaultPassword ? DEFAULT_SECRET_CODE : password;
+    const chosenConfirm = useDefaultPassword ? DEFAULT_SECRET_CODE : confirmPassword;
+
+    if (chosenPassword !== chosenConfirm) {
       setErrorMsg(lang === 'ar' ? 'كلمات المرور غير متطابقة.' : 'Passwords do not match.');
       return;
     }
 
-    const existing = await db.localUsers.where('username').equalsIgnoreCase(username.trim()).first();
-    if (existing) {
+    const trimmedUsername = username.trim().toLowerCase();
+    const trimmedEmail = email.trim().toLowerCase();
+
+    const existingUsername = await db.localUsers.where('username').equalsIgnoreCase(trimmedUsername).first();
+    if (existingUsername) {
       setErrorMsg(lang === 'ar' ? 'اسم المستخدم مسجل مسبقاً.' : 'Username already exists.');
       return;
     }
 
-    const passwordHash = await hashPassword(password);
+    if (trimmedEmail) {
+      const existingEmail = await db.localUsers.where('email').equalsIgnoreCase(trimmedEmail).first();
+      if (existingEmail) {
+        setErrorMsg(lang === 'ar' ? 'البريد الإلكتروني مسجل مسبقاً.' : 'Email already exists.');
+        return;
+      }
+    }
+
+    const passwordHash = await hashPassword(chosenPassword);
     const id = `USR-${Date.now()}`;
     const newUser: LocalUser = {
       id,
-      username: username.trim().toLowerCase(),
+      username: trimmedUsername,
+      email: trimmedEmail || `${trimmedUsername}@gmail.com`,
       fullName: fullName.trim(),
       role,
       department: department.trim(),
       passwordHash,
       isActive: true,
+      isDefaultPassword: useDefaultPassword || chosenPassword === DEFAULT_SECRET_CODE,
       createdAt: new Date().toISOString(),
     };
 
@@ -91,45 +120,58 @@ export const UserManagementView: React.FC<Props> = ({ lang, currentUser }) => {
       actionType: 'USER_MANAGEMENT',
       entityType: 'LocalUser',
       entityId: id,
-      details: `Created new local user account: ${newUser.username} (${newUser.role})`,
+      details: `Created new local user account: ${newUser.username} (${newUser.email || 'no-email'}) with role '${newUser.role}'`,
     });
 
     await loadUsers();
     setShowAddModal(false);
     setUsername('');
+    setEmail('');
     setFullName('');
-    setPassword('');
-    setConfirmPassword('');
+    setPassword(DEFAULT_SECRET_CODE);
+    setConfirmPassword(DEFAULT_SECRET_CODE);
+    setUseDefaultPassword(true);
     notifySuccess(
       lang === 'ar'
-        ? `تم إنشاء حساب المستخدم "${newUser.username}" بنجاح.`
-        : `User account "${newUser.username}" created successfully.`
+        ? `تم إنشاء حساب المستخدم "${newUser.fullName}" بنجاح.`
+        : `User account "${newUser.fullName}" created successfully.`
     );
   };
 
   const toggleUserActive = (user: LocalUser) => {
     if (!canAdminister(currentUser)) {
       notifyError(
-        lang === 'ar' ? 'فقط مدير النظام يملك صلاحية إدارة المستخدمين.' : 'Only administrators can manage users.'
+        lang === 'ar'
+          ? 'فقط مدير النظام يملك صلاحية إدارة المستخدمين.'
+          : 'Only administrators can manage users.'
       );
       return;
     }
 
     if (user.id === currentUser?.id) {
       notifyWarning(
-        lang === 'ar' ? 'لا يمكنك تعطيل حسابك النشط حالياً.' : 'You cannot disable your active account.'
+        lang === 'ar'
+          ? 'لا يمكنك تعطيل حسابك النشط حالياً.'
+          : 'You cannot disable your active account.'
       );
       return;
     }
 
     const updatedStatus = !user.isActive;
     requestConfirm({
-      title: lang === 'ar' ? (updatedStatus ? 'تفعيل الحساب' : 'تعطيل الحساب') : (updatedStatus ? 'Activate Account' : 'Disable Account'),
+      title:
+        lang === 'ar'
+          ? updatedStatus
+            ? 'تفعيل الحساب'
+            : 'تعطيل الحساب'
+          : updatedStatus
+          ? 'Activate Account'
+          : 'Disable Account',
       message:
         lang === 'ar'
           ? `هل أنت متأكد من ${updatedStatus ? 'تفعيل' : 'تعطيل'} حساب المستخدم: "${user.fullName}" (${user.username})؟`
           : `Are you sure you want to ${updatedStatus ? 'activate' : 'disable'} account: "${user.fullName}" (${user.username})?`,
-      confirmText: lang === 'ar' ? (updatedStatus ? 'تفعيل' : 'تعطيل') : (updatedStatus ? 'Activate' : 'Disable'),
+      confirmText: lang === 'ar' ? (updatedStatus ? 'تفعيل' : 'تعطيل') : updatedStatus ? 'Activate' : 'Disable',
       cancelText: lang === 'ar' ? 'إلغاء' : 'Cancel',
       isDestructive: !updatedStatus,
       onConfirm: async () => {
@@ -154,19 +196,64 @@ export const UserManagementView: React.FC<Props> = ({ lang, currentUser }) => {
     });
   };
 
+  const handleResetPassword = (user: LocalUser) => {
+    if (!canAdminister(currentUser)) {
+      notifyError(
+        lang === 'ar'
+          ? 'فقط مدير النظام يملك صلاحية إعادة تعيين الرمز السري.'
+          : 'Only administrators can reset user credentials.'
+      );
+      return;
+    }
+
+    requestConfirm({
+      title: lang === 'ar' ? 'إعادة تعيين الرمز السري' : 'Reset Secret Code to Default',
+      message:
+        lang === 'ar'
+          ? `هل أنت متأكد من إعادة تعيين الرمز السري للمستخدم "${user.fullName}" (${user.email || user.username}) إلى الرمز الافتراضي (123456)؟ سيطلب من المستخدم تغيير رمزه ليكون خاصاً به عند الدخول.`
+          : `Are you sure you want to reset secret code for "${user.fullName}" to the default code (123456)? The user will be prompted to set their private code.`,
+      confirmText: lang === 'ar' ? 'إعادة التعيين' : 'Reset Code',
+      cancelText: lang === 'ar' ? 'إلغاء' : 'Cancel',
+      isDestructive: false,
+      onConfirm: async () => {
+        const res = await resetUserToDefaultCode(user.id, currentUser);
+        if (res.success) {
+          await loadUsers();
+          notifySuccess(
+            lang === 'ar'
+              ? `تمت إعادة تعيين الرمز السري بنجاح إلى: 123456`
+              : `Secret code reset successfully to: 123456`
+          );
+        } else {
+          notifyError(res.error || 'Failed to reset code');
+        }
+      },
+    });
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
         <div>
           <h2 className="text-xl font-bold text-slate-900 tracking-tight">{t.users.title}</h2>
-          <p className="text-xs text-slate-500">{t.users.subtitle}</p>
+          <p className="text-xs text-slate-500">
+            {lang === 'ar'
+              ? 'إدارة حسابات المستخدمين والبريد الإلكتروني والرموز السرية وصلاحيات النظام'
+              : 'User accounts, Gmail addresses, confidential secret codes, and RBAC permissions'}
+          </p>
         </div>
 
         {canAdminister(currentUser) && (
           <button
             onClick={() => {
               setErrorMsg('');
+              setUsername('');
+              setEmail('');
+              setFullName('');
+              setPassword(DEFAULT_SECRET_CODE);
+              setConfirmPassword(DEFAULT_SECRET_CODE);
+              setUseDefaultPassword(true);
               setShowAddModal(true);
             }}
             className="flex items-center gap-1.5 rounded-xl bg-sky-600 px-3.5 py-2 text-xs font-bold text-white shadow-sm hover:bg-sky-700 transition"
@@ -209,10 +296,10 @@ export const UserManagementView: React.FC<Props> = ({ lang, currentUser }) => {
         <table className="w-full text-xs text-start">
           <thead>
             <tr className="bg-slate-900 text-white font-semibold">
-              <th className="p-3.5 text-start">{t.users.username}</th>
               <th className="p-3.5 text-start">{t.users.fullName}</th>
+              <th className="p-3.5 text-start">{lang === 'ar' ? 'البريد الإلكتروني (جيميل)' : 'Gmail / Email'}</th>
               <th className="p-3.5 text-start">{t.users.role}</th>
-              <th className="p-3.5 text-start">{t.users.department}</th>
+              <th className="p-3.5 text-start">{lang === 'ar' ? 'حالة الرمز السري' : 'Secret Code Status'}</th>
               <th className="p-3.5 text-start">{t.users.status}</th>
               <th className="p-3.5 text-end">{lang === 'ar' ? 'الإجراءات' : 'Actions'}</th>
             </tr>
@@ -220,8 +307,15 @@ export const UserManagementView: React.FC<Props> = ({ lang, currentUser }) => {
           <tbody className="divide-y divide-slate-100 text-slate-700">
             {users.map(u => (
               <tr key={u.id} className="hover:bg-slate-50 transition">
-                <td className="p-3.5 font-mono font-bold text-slate-900">{u.username}</td>
-                <td className="p-3.5 font-semibold text-slate-800">{u.fullName}</td>
+                <td className="p-3.5 font-semibold text-slate-900">
+                  <div className="flex items-center gap-2">
+                    <div className="h-6 w-6 rounded-lg bg-slate-800 text-white flex items-center justify-center font-bold text-[10px]">
+                      {(u.username || u.email || 'U').charAt(0).toUpperCase()}
+                    </div>
+                    <span>{u.fullName}</span>
+                  </div>
+                </td>
+                <td className="p-3.5 font-mono text-slate-600">{u.email || u.username}</td>
                 <td className="p-3.5">
                   <span
                     className={`rounded-md px-2 py-0.5 text-[10px] font-semibold border ${
@@ -235,7 +329,19 @@ export const UserManagementView: React.FC<Props> = ({ lang, currentUser }) => {
                     {u.role}
                   </span>
                 </td>
-                <td className="p-3.5 text-slate-500">{u.department}</td>
+                <td className="p-3.5">
+                  {u.isDefaultPassword ? (
+                    <span className="rounded-md bg-amber-50 text-amber-800 border border-amber-200 px-2 py-0.5 text-[10px] font-semibold inline-flex items-center gap-1">
+                      <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
+                      {lang === 'ar' ? 'رمز افتراضي (123456)' : 'Default (123456)'}
+                    </span>
+                  ) : (
+                    <span className="rounded-md bg-emerald-50 text-emerald-800 border border-emerald-200 px-2 py-0.5 text-[10px] font-semibold inline-flex items-center gap-1">
+                      <CheckCircle2 className="h-3 w-3 text-emerald-600" />
+                      {lang === 'ar' ? 'رمز سري خاص ومحمي' : 'Confidential Code'}
+                    </span>
+                  )}
+                </td>
                 <td className="p-3.5">
                   <span
                     className={`rounded-md px-2 py-0.5 text-[10px] font-semibold border ${
@@ -248,18 +354,34 @@ export const UserManagementView: React.FC<Props> = ({ lang, currentUser }) => {
                   </span>
                 </td>
                 <td className="p-3.5 text-end">
-                  {canAdminister(currentUser) && u.id !== currentUser?.id && (
-                    <button
-                      onClick={() => toggleUserActive(u)}
-                      className={`rounded-lg px-2.5 py-1 text-[11px] font-semibold border transition ${
-                        u.isActive
-                          ? 'border-rose-200 text-rose-700 hover:bg-rose-50'
-                          : 'border-emerald-200 text-emerald-700 hover:bg-emerald-50'
-                      }`}
-                    >
-                      {u.isActive ? t.users.inactive : t.users.active}
-                    </button>
-                  )}
+                  <div className="flex items-center justify-end gap-2">
+                    {canAdminister(currentUser) && (
+                      <button
+                        onClick={() => handleResetPassword(u)}
+                        title={
+                          lang === 'ar'
+                            ? 'إعادة تعيين الرمز السري للافتراضي (123456)'
+                            : 'Reset secret code to default (123456)'
+                        }
+                        className="rounded-lg p-1.5 text-slate-500 hover:text-sky-700 hover:bg-sky-50 border border-slate-200 transition"
+                      >
+                        <RotateCcw className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+
+                    {canAdminister(currentUser) && u.id !== currentUser?.id && (
+                      <button
+                        onClick={() => toggleUserActive(u)}
+                        className={`rounded-lg px-2.5 py-1 text-[11px] font-semibold border transition ${
+                          u.isActive
+                            ? 'border-rose-200 text-rose-700 hover:bg-rose-50'
+                            : 'border-emerald-200 text-emerald-700 hover:bg-emerald-50'
+                        }`}
+                      >
+                        {u.isActive ? t.users.inactive : t.users.active}
+                      </button>
+                    )}
+                  </div>
                 </td>
               </tr>
             ))}
@@ -278,7 +400,10 @@ export const UserManagementView: React.FC<Props> = ({ lang, currentUser }) => {
           <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl border border-slate-200 space-y-4">
             <div className="flex items-center justify-between border-b pb-3">
               <h3 className="font-bold text-base text-slate-900">{t.users.addUser}</h3>
-              <button onClick={() => setShowAddModal(false)} className="text-slate-400 hover:text-slate-700">
+              <button
+                onClick={() => setShowAddModal(false)}
+                className="text-slate-400 hover:text-slate-700 p-1"
+              >
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -291,27 +416,50 @@ export const UserManagementView: React.FC<Props> = ({ lang, currentUser }) => {
 
             <form onSubmit={handleCreateUser} className="space-y-3 text-xs">
               <div>
-                <label className="block font-bold text-slate-700 mb-1">{t.users.username} *</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. j.alhasan"
-                  value={username}
-                  onChange={e => setUsername(e.target.value)}
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-800"
-                />
+                <label className="block font-bold text-slate-700 mb-1">
+                  {lang === 'ar' ? 'البريد الإلكتروني (جيميل) *' : 'Gmail / Email Address *'}
+                </label>
+                <div className="relative">
+                  <input
+                    type="email"
+                    required
+                    placeholder="engineer@gmail.com"
+                    value={email}
+                    onChange={e => {
+                      setEmail(e.target.value);
+                      if (!username && e.target.value.includes('@')) {
+                        setUsername(e.target.value.split('@')[0]);
+                      }
+                    }}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 pl-8 text-slate-800"
+                  />
+                  <Mail className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
+                </div>
               </div>
 
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">{t.users.fullName} *</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Eng. Jassim Al-Hassan"
-                  value={fullName}
-                  onChange={e => setFullName(e.target.value)}
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-800"
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">{t.users.fullName} *</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Eng. Sarah Al-Ali"
+                    value={fullName}
+                    onChange={e => setFullName(e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-800"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">{t.users.username} *</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="sarah.ali"
+                    value={username}
+                    onChange={e => setUsername(e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-800"
+                  />
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -338,27 +486,55 @@ export const UserManagementView: React.FC<Props> = ({ lang, currentUser }) => {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">{t.users.password} *</label>
+              {/* Secret code setup */}
+              <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3 space-y-2">
+                <label className="flex items-center gap-2 cursor-pointer font-semibold text-slate-800">
                   <input
-                    type="password"
-                    required
-                    value={password}
-                    onChange={e => setPassword(e.target.value)}
-                    className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                    type="checkbox"
+                    checked={useDefaultPassword}
+                    onChange={e => setUseDefaultPassword(e.target.checked)}
+                    className="rounded text-sky-600 focus:ring-sky-500"
                   />
-                </div>
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">{t.users.confirmPassword} *</label>
-                  <input
-                    type="password"
-                    required
-                    value={confirmPassword}
-                    onChange={e => setConfirmPassword(e.target.value)}
-                    className="w-full rounded-xl border border-slate-300 px-3 py-2"
-                  />
-                </div>
+                  <span>
+                    {lang === 'ar'
+                      ? 'استخدام الرمز السري الافتراضي (123456)'
+                      : 'Use default initial secret code (123456)'}
+                  </span>
+                </label>
+                <p className="text-[11px] text-slate-500">
+                  {lang === 'ar'
+                    ? 'سيتمكن المستخدم من تسجيل الدخول بالرمز الافتراضي (123456) ثم تغييره لرمز سري خاص به بحيث لا يكون ظاهراً للعلن.'
+                    : 'The user will be able to log in with 123456 and change it to their private code.'}
+                </p>
+
+                {!useDefaultPassword && (
+                  <div className="grid grid-cols-2 gap-3 pt-2">
+                    <div>
+                      <label className="block font-bold text-slate-700 mb-1">
+                        {lang === 'ar' ? 'الرمز السري المخصص *' : 'Custom Code *'}
+                      </label>
+                      <input
+                        type="password"
+                        required={!useDefaultPassword}
+                        value={password}
+                        onChange={e => setPassword(e.target.value)}
+                        className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                      />
+                    </div>
+                    <div>
+                      <label className="block font-bold text-slate-700 mb-1">
+                        {lang === 'ar' ? 'تأكيد الرمز *' : 'Confirm Code *'}
+                      </label>
+                      <input
+                        type="password"
+                        required={!useDefaultPassword}
+                        value={confirmPassword}
+                        onChange={e => setConfirmPassword(e.target.value)}
+                        className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="pt-2 flex justify-end gap-2.5">
